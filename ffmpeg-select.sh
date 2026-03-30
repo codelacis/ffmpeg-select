@@ -124,7 +124,6 @@ ffmpeg_select() {
     echo "Input: $input"
     echo
 
-    # FORMAT
     printf "Choose output format (mkv/mp4/mov) [mkv]: "
     read format
     format=$(echo "$format" | xargs)
@@ -135,7 +134,6 @@ ffmpeg_select() {
     output=$(echo "$output" | xargs)
     [ -z "$output" ] && output="output.$format"
 
-    # VIDEO RENAME
     echo
     printf "Rename video track name? (y/n) [keep]: "
     read rename_video
@@ -151,7 +149,6 @@ ffmpeg_select() {
         read video_name
     fi
 
-    # AUDIO
     echo
     echo "==== AUDIO TRACKS ===="
     ffprobe_audio "$input"
@@ -204,8 +201,8 @@ ffmpeg_select() {
                     }
                 }')
 
-            label=$(echo "$info" | cut -d'|' -f1)
-            current=$(echo "$info" | cut -d'|' -f2)
+            label=$(echo "$info" | awk -F'|' '{print $1}')
+            current=$(echo "$info" | awk -F'|' '{print $2}')
             lang=$(echo "$label" | awk '{print $1}')
             color=$(get_color_shell "$lang")
 
@@ -217,7 +214,6 @@ ffmpeg_select() {
         done
     fi
 
-    # SUBS
     echo
     echo "==== SUBTITLE TRACKS ===="
     ffprobe_subs "$input"
@@ -249,8 +245,8 @@ ffmpeg_select() {
                     }
                 }')
 
-            label=$(echo "$info" | cut -d'|' -f1)
-            current=$(echo "$info" | cut -d'|' -f2)
+            label=$(echo "$info" | awk -F'|' '{print $1}')
+            current=$(echo "$info" | awk -F'|' '{print $2}')
             lang=$(echo "$label" | awk '{print $1}')
             color=$(get_color_shell "$lang")
 
@@ -262,11 +258,9 @@ ffmpeg_select() {
         done
     fi
 
-    # ✅ ENCODER SETTINGS (RESTORED)
     echo
     printf "Custom encoder settings? (y/n) [n]: "
     read custom_enc
-    custom_enc=$(echo "$custom_enc" | xargs)
 
     if [ "$custom_enc" = "y" ]; then
         printf "CRF (default 20): "
@@ -294,7 +288,7 @@ ffmpeg_select() {
             -show_entries stream=index -of csv=p=0 "$input" | sed -n "${a}p")
         cmd="$cmd -map 0:$real"
 
-        name=$(echo "$audio_names" | tr ';' '\n' | grep "^$a=" | cut -d= -f2-)
+        name=$(echo "$audio_names" | tr ';' '\n' | awk -F= -v n="$a" '$1==n {sub($1"=",""); print}')
         [ -n "$name" ] && cmd="$cmd -metadata:s:a:$idx title=\"$name\""
 
         idx=$((idx+1))
@@ -306,7 +300,7 @@ ffmpeg_select() {
             -show_entries stream=index -of csv=p=0 "$input" | sed -n "${s}p")
         cmd="$cmd -map 0:$real"
 
-        name=$(echo "$sub_names" | tr ';' '\n' | grep "^$s=" | cut -d= -f2-)
+        name=$(echo "$sub_names" | tr ';' '\n' | awk -F= -v n="$s" '$1==n {sub($1"=",""); print}')
         [ -n "$name" ] && cmd="$cmd -metadata:s:s:$sidx title=\"$name\""
 
         sidx=$((sidx+1))
