@@ -1,4 +1,11 @@
-#!/bin/bash
+#!/bin/sh
+
+##How to use##
+# Mac:
+#   chmod +x ffmpeg-select.sh
+#   ./ffmpeg-select.sh input.mkv
+# iPad (a-Shell):
+#   sh ffmpeg-select.sh input.mkv
 
 # =========================
 # AUDIO PROBE
@@ -7,11 +14,10 @@ ffprobe_audio() {
     ffprobe -v error \
         -select_streams a \
         -show_entries stream=index,codec_name,channels:stream_disposition=default:stream_tags=language,title \
-        -of default=noprint_wrappers=1 "$1" | \
-    awk '
+        -of default=noprint_wrappers=1 "$1" | awk '
         BEGIN { count = 0 }
 
-        function lang_color(lang) {
+        function get_color(lang) {
             if (lang == "ENG") return 32
             if (lang == "JPN") return 35
             if (lang == "GER") return 34
@@ -19,39 +25,37 @@ ffprobe_audio() {
         }
 
         /^index=/ {
-            if (count > 0) print_line()
-            idx = substr($0,7)
-            codec = ch = lang = title = ""
-            def = 0
+            if (count>0) print_line()
+            idx=substr($0,7)
+            codec=ch=lang=title=""
+            def=0
             count++
         }
 
-        /^codec_name=/ { codec = substr($0,12) }
-        /^channels=/   { ch = substr($0,10) }
-        /^TAG:language=/ { lang = toupper(substr($0,14)) }
-        /^TAG:title=/    { title = substr($0,11) }
-        /^DISPOSITION:default=/ { def = substr($0,21) }
+        /^codec_name=/ { codec=substr($0,12) }
+        /^channels=/ { ch=substr($0,10) }
+        /^TAG:language=/ { lang=toupper(substr($0,14)) }
+        /^TAG:title=/ { title=substr($0,11) }
+        /^DISPOSITION:default=/ { def=substr($0,21) }
 
         END { print_line() }
 
         function print_line() {
-            if (idx == "") return
+            if (idx=="") return
+            if (lang=="") lang="UNK"
+            if (title=="") title="No Title"
 
-            if (lang == "") lang = "UNK"
-            if (title == "") title = "No Title"
+            ch_label=(ch==2?"Stereo":(ch==6?"5.1":ch "ch"))
 
-            ch_label = (ch == 2 ? "Stereo" : (ch == 6 ? "5.1" : ch "ch"))
+            flags=""
+            if (def==1) flags="[DEFAULT]"
+            if (tolower(title) ~ /commentary/) flags=flags"[COMMENT]"
 
-            flags = ""
-            if (def == 1) flags = "[DEFAULT]"
-            if (tolower(title) ~ /commentary/) flags = flags "[COMMENT]"
+            color=get_color(lang)
 
-            color = lang_color(lang)
-
-            printf "\033[%sm[%d]  %-3s  %-6s  (%-6s)  %-15s %s\033[0m\n",
+            printf "\033[%sm[%d] %-3s %-6s (%-6s) %-12s %s\033[0m\n",
                    color, count, lang, ch_label, codec, flags, title
-        }
-    '
+        }'
 }
 
 # =========================
@@ -61,175 +65,271 @@ ffprobe_subs() {
     ffprobe -v error \
         -select_streams s \
         -show_entries stream=index,codec_name:stream_tags=language,title \
-        -of default=noprint_wrappers=1 "$1" | \
-    awk '
+        -of default=noprint_wrappers=1 "$1" | awk '
         BEGIN { count = 0 }
 
-        function lang_color(lang) {
+        function get_color(lang) {
             if (lang == "ENG") return 32
             if (lang == "JPN") return 35
             if (lang == "GER") return 34
-            if (lang == "FRE") return 36
             return 33
         }
 
         /^index=/ {
-            if (count > 0) print_line()
-            idx = substr($0,7)
-            codec = lang = title = ""
+            if (count>0) print_line()
+            idx=substr($0,7)
+            codec=lang=title=""
             count++
         }
 
-        /^codec_name=/ { codec = substr($0,12) }
-        /^TAG:language=/ { lang = toupper(substr($0,14)) }
-        /^TAG:title=/    { title = substr($0,11) }
+        /^codec_name=/ { codec=substr($0,12) }
+        /^TAG:language=/ { lang=toupper(substr($0,14)) }
+        /^TAG:title=/ { title=substr($0,11) }
 
         END { print_line() }
 
         function print_line() {
-            if (idx == "") return
+            if (idx=="") return
+            if (lang=="") lang="UNK"
+            if (title=="") title="No Title"
 
-            if (lang == "") lang = "UNK"
-            if (title == "") title = "No Title"
+            color=get_color(lang)
 
-            codec_label = codec
-            if (codec == "ass") codec_label = "ASS"
-            else if (codec == "subrip") codec_label = "SRT"
-
-            color = lang_color(lang)
-
-            printf "\033[%sm[%d]  %-3s  (%-6s)  %s\033[0m\n",
-                   color, count, lang, codec_label, title
-        }
-    '
+            printf "\033[%sm[%d] %-3s (%-6s) %s\033[0m\n",
+                   color, count, lang, codec, title
+        }'
 }
 
 # =========================
-# MAIN SELECTOR
+# COLOR HELPER
+# =========================
+get_color_shell() {
+    case "$1" in
+        ENG) echo 32 ;;
+        JPN) echo 35 ;;
+        GER) echo 34 ;;
+        *) echo 33 ;;
+    esac
+}
+
+# =========================
+# MAIN
 # =========================
 ffmpeg_select() {
     input="$1"
 
-    if [ -z "$input" ]; then
-        echo "Usage: ffmpeg-select <file>"
-        return 1
-    fi
-
-    if [ ! -f "$input" ]; then
-        echo "Error: File not found → $input"
-        return 1
-    fi
+    [ -z "$input" ] && echo "Usage: ffmpeg-select <file>" && return 1
+    [ ! -f "$input" ] && echo "Error: File not found → $input" && return 1
 
     echo "Input: $input"
-
     echo
-    read -p "Output file (default: output.mkv): " output
-    output=${output:-output.mkv}
 
+    # FORMAT
+    printf "Choose output format (mkv/mp4/mov) [mkv]: "
+    read format
+    format=$(echo "$format" | xargs)
+    [ -z "$format" ] && format="mkv"
+
+    printf "Output filename [output.%s]: " "$format"
+    read output
+    output=$(echo "$output" | xargs)
+    [ -z "$output" ] && output="output.$format"
+
+    # VIDEO RENAME
+    echo
+    printf "Rename video track name? (y/n) [keep]: "
+    read rename_video
+
+    if [ "$rename_video" = "y" ]; then
+        current_video=$(ffprobe -v error -select_streams v:0 \
+            -show_entries stream_tags=title \
+            -of default=noprint_wrappers=1:nokey=1 "$input")
+
+        [ -z "$current_video" ] && current_video="No Title"
+
+        printf "Current: %s\nNew name [keep]: " "$current_video"
+        read video_name
+    fi
+
+    # AUDIO
     echo
     echo "==== AUDIO TRACKS ===="
     ffprobe_audio "$input"
 
-    audio_real=($(ffprobe -v error -select_streams a \
-        -show_entries stream=index \
-        -of csv=p=0 "$input"))
+    printf "\nSelect audio tracks (e.g. 1 2 3) [all]: "
+    read audio_sel
+    audio_sel=$(echo "$audio_sel" | xargs)
 
-    echo
-    read -p "Select audio tracks (e.g. 1 2, default: 1): " audio_sel
-    audio_sel=${audio_sel:-1}
-
-    echo
-    read -p "Keep existing default track? (y/n): " keep_default
-
-    if [[ "$keep_default" == "n" ]]; then
-        read -p "Set new default track number (or Enter for none): " default_track
+    if [ -z "$audio_sel" ]; then
+        total=$(ffprobe -v error -select_streams a \
+            -show_entries stream=index -of csv=p=0 "$input" | wc -l)
+        i=1
+        while [ "$i" -le "$total" ]; do
+            audio_sel="$audio_sel $i"
+            i=$((i+1))
+        done
     fi
 
     echo
-    read -p "Mark commentary tracks (e.g. 3 or Enter to skip): " commentary_sel
+    printf "Keep existing default track flag? (y/n) [y]: "
+    read keep_default
 
+    echo
+    printf "Keep existing commentary track flag? (y/n) [y]: "
+    read keep_commentary
+
+    echo
+    printf "Rename audio track names? (y/n) [n]: "
+    read rename_audio
+
+    if [ "$rename_audio" = "y" ]; then
+        echo
+        audio_names=""
+
+        for a in $audio_sel; do
+            info=$(ffprobe -v error -select_streams a \
+                -show_entries stream=codec_name,channels:stream_tags=language,title \
+                -of default=noprint_wrappers=1 "$input" | \
+                awk -v n="$a" '
+                BEGIN{c=0}
+                /^codec_name=/ {codec=substr($0,12)}
+                /^channels=/ {ch=substr($0,10)}
+                /^TAG:language=/ {lang=toupper(substr($0,14))}
+                /^TAG:title=/ {
+                    title=substr($0,11); c++
+                    if (c==n) {
+                        ch_label=(ch==2?"Stereo":(ch==6?"5.1":ch "ch"))
+                        printf "%s %s (%s)|%s", lang, ch_label, codec, title
+                        exit
+                    }
+                }')
+
+            label=$(echo "$info" | cut -d'|' -f1)
+            current=$(echo "$info" | cut -d'|' -f2)
+            lang=$(echo "$label" | awk '{print $1}')
+            color=$(get_color_shell "$lang")
+
+            printf "\033[%sm[%s] %s\033[0m\nCurrent: %s\nNew name [keep]: " \
+                "$color" "$a" "$label" "$current"
+            read name
+
+            [ -n "$name" ] && audio_names="$audio_names;$a=$name"
+        done
+    fi
+
+    # SUBS
     echo
     echo "==== SUBTITLE TRACKS ===="
     ffprobe_subs "$input"
 
-    sub_real=($(ffprobe -v error -select_streams s \
-        -show_entries stream=index \
-        -of csv=p=0 "$input"))
+    printf "\nSelect subtitle tracks (e.g. 1 2 3) [none]: "
+    read sub_sel
 
     echo
-    read -p "Select subtitle tracks (Enter to skip): " sub_sel
+    printf "Rename subtitle track names? (y/n) [n]: "
+    read rename_subs
 
-    echo
-    read -p "Custom encoder settings? (y/n): " custom_enc
+    if [ "$rename_subs" = "y" ]; then
+        echo
+        sub_names=""
 
-    if [[ "$custom_enc" == "y" ]]; then
-        read -p "CRF (default 20): " crf
-        read -p "Preset (default medium): " preset
-        read -p "Audio bitrate (default 192k): " abitrate
+        for s in $sub_sel; do
+            info=$(ffprobe -v error -select_streams s \
+                -show_entries stream=codec_name:stream_tags=language,title \
+                -of default=noprint_wrappers=1 "$input" | \
+                awk -v n="$s" '
+                BEGIN{c=0}
+                /^codec_name=/ {codec=substr($0,12)}
+                /^TAG:language=/ {lang=toupper(substr($0,14))}
+                /^TAG:title=/ {
+                    title=substr($0,11); c++
+                    if (c==n) {
+                        printf "%s (%s)|%s", lang, codec, title
+                        exit
+                    }
+                }')
+
+            label=$(echo "$info" | cut -d'|' -f1)
+            current=$(echo "$info" | cut -d'|' -f2)
+            lang=$(echo "$label" | awk '{print $1}')
+            color=$(get_color_shell "$lang")
+
+            printf "\033[%sm[%s] %s\033[0m\nCurrent: %s\nNew name [keep]: " \
+                "$color" "$s" "$label" "$current"
+            read name
+
+            [ -n "$name" ] && sub_names="$sub_names;$s=$name"
+        done
     fi
 
-    crf=${crf:-20}
-    preset=${preset:-medium}
-    abitrate=${abitrate:-192k}
+    # ✅ ENCODER SETTINGS (RESTORED)
+    echo
+    printf "Custom encoder settings? (y/n) [n]: "
+    read custom_enc
+    custom_enc=$(echo "$custom_enc" | xargs)
+
+    if [ "$custom_enc" = "y" ]; then
+        printf "CRF (default 20): "
+        read crf
+        printf "Preset (default medium): "
+        read preset
+        printf "Audio bitrate (default 192k): "
+        read abitrate
+    fi
+
+    [ -z "$crf" ] && crf=20
+    [ -z "$preset" ] && preset=medium
+    [ -z "$abitrate" ] && abitrate=192k
 
     echo
     echo "Building command..."
 
     cmd="ffmpeg -i \"$input\" -map 0:v"
 
-    # AUDIO
+    [ -n "$video_name" ] && cmd="$cmd -metadata:s:v:0 title=\"$video_name\""
+
     idx=0
     for a in $audio_sel; do
-        real=${audio_real[$((a-1))]}
+        real=$(ffprobe -v error -select_streams a \
+            -show_entries stream=index -of csv=p=0 "$input" | sed -n "${a}p")
         cmd="$cmd -map 0:$real"
 
-        if [[ "$keep_default" == "n" ]]; then
-            if [[ "$default_track" == "$a" ]]; then
-                cmd="$cmd -disposition:a:$idx default"
-            else
-                cmd="$cmd -disposition:a:$idx 0"
-            fi
-        fi
+        name=$(echo "$audio_names" | tr ';' '\n' | grep "^$a=" | cut -d= -f2-)
+        [ -n "$name" ] && cmd="$cmd -metadata:s:a:$idx title=\"$name\""
 
-        if [[ " $commentary_sel " == *" $a "* ]]; then
-            cmd="$cmd -metadata:s:a:$idx title=\"Commentary\""
-        fi
-
-        ((idx++))
+        idx=$((idx+1))
     done
 
-    # SUBS
     sidx=0
     for s in $sub_sel; do
-        real=${sub_real[$((s-1))]}
+        real=$(ffprobe -v error -select_streams s \
+            -show_entries stream=index -of csv=p=0 "$input" | sed -n "${s}p")
         cmd="$cmd -map 0:$real"
 
-        ((sidx++))
+        name=$(echo "$sub_names" | tr ';' '\n' | grep "^$s=" | cut -d= -f2-)
+        [ -n "$name" ] && cmd="$cmd -metadata:s:s:$sidx title=\"$name\""
+
+        sidx=$((sidx+1))
     done
 
-    # Container compatibility
-    if [[ "$output" == *.mp4 || "$output" == *.mov ]]; then
-        acodec="-c:a aac -b:a $abitrate"
-        scodec="-c:s mov_text"
-    else
-        acodec="-c:a libopus -b:a $abitrate -vbr on"
-        scodec="-c:s copy"
-    fi
+    case "$format" in
+        mp4|mov)
+            acodec="-c:a aac -b:a $abitrate"
+            scodec="-c:s mov_text"
+            ;;
+        *)
+            acodec="-c:a libopus -b:a $abitrate -vbr on"
+            scodec="-c:s copy"
+            ;;
+    esac
 
-    # Final command
-    cmd="$cmd \
--c:v libx265 -crf $crf -preset $preset \
-$acodec \
-$scodec \"$output\""
+    cmd="$cmd -c:v libx265 -crf $crf -preset $preset $acodec $scodec \"$output\""
 
     echo
-    echo "=============================="
     echo "$cmd"
-    echo "=============================="
     echo
 
     eval "$cmd"
 }
 
-# Run
 ffmpeg_select "$1"
