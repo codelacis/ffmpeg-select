@@ -282,6 +282,13 @@ ffmpeg_select() {
 
     [ -n "$video_name" ] && cmd="$cmd -metadata:s:v:0 title=\"$video_name\""
 
+    # Detect encoder
+    if ffmpeg -encoders 2>/dev/null | grep -q libx265; then
+        vcodec="libx265"
+    else
+        vcodec="libx264"
+    fi
+
     idx=0
     for a in $audio_sel; do
         real=$(ffprobe -v error -select_streams a \
@@ -306,18 +313,7 @@ ffmpeg_select() {
         sidx=$((sidx+1))
     done
 
-    case "$format" in
-        mp4|mov)
-            acodec="-c:a aac -b:a $abitrate"
-            scodec="-c:s mov_text"
-            ;;
-        *)
-            acodec="-c:a libopus -b:a $abitrate -vbr on"
-            scodec="-c:s copy"
-            ;;
-    esac
-
-    cmd="$cmd -c:v libx265 -crf $crf -preset $preset $acodec $scodec \"$output\""
+    cmd="$cmd -c:v $vcodec -crf $crf -preset $preset $acodec $scodec \"$output\""
 
     echo
     echo "$cmd"
